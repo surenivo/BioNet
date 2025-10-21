@@ -103,12 +103,38 @@ def fetch_osm_trees_buildings(bbox):
     return trees.nodes, building_polys
 
 def add_tile_layers(m):
-    folium.TileLayer("OpenStreetMap", name="OSM Standard").add_to(m)
-    folium.TileLayer("CartoDB positron", name="Carto Light").add_to(m)
-    folium.TileLayer("Stamen Terrain", name="Terrain").add_to(m)
-    folium.LayerControl(collapsed=False).add_to(m)
+    folium.TileLayer(
+        tiles="OpenStreetMap",
+        name="OSM Standard",
+        attr="© OpenStreetMap contributors"
+    ).add_to(m)
+
+    folium.TileLayer(
+        tiles="CartoDB positron",
+        name="Carto Light",
+        attr="© OpenStreetMap contributors, © CartoDB"
+    ).add_to(m)
+
+    folium.TileLayer(
+        tiles="Stamen Terrain",
+        name="Terrain",
+        attr="Map tiles by Stamen Design, under CC BY 3.0 — Data by OpenStreetMap"
+    ).add_to(m)
+
+ folium.LayerControl(collapsed=False).add_to(m)
     return m
 
+folium.TileLayer(
+    tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    name="OpenTopoMap",
+    attr="© OpenTopoMap (CC-BY-SA)"
+).add_to(m)
+
+folium.TileLayer(
+    tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+    name="Dark Mode",
+    attr="© OpenStreetMap contributors © CartoDB"
+).add_to(m)
 # ---------- Tabs ----------
 tabs = st.tabs(["📷 Analyze Tree", "🗺️ Map View", "📊 Dashboard", "🏛️ Government Summary"])
 
