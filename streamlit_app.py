@@ -1,5 +1,5 @@
 # =========================================================
-# 🌱 Seed of Tomorrow / 明日之種：AI+真菌 淨零城市治理平台
+# 🌱 Seed of Tomorrow / 未來之種：AI+真菌 淨零城市治理平台
 # =========================================================
 # Bilingual UI (繁中 / English), Taiwan-wide city/district pickers,
 # precise location (geocode / map-click / manual), OSM overlays (trees/buildings),
@@ -21,7 +21,7 @@ import plotly.graph_objects as go
 # ---------------------------------------------------------
 # PAGE CONFIG / 頁面設定
 # ---------------------------------------------------------
-st.set_page_config(page_title="Seed of Tomorrow / 明日之種", page_icon="🌱", layout="wide")
+st.set_page_config(page_title="Seed of Tomorrow / 未來之種", page_icon="🌱", layout="wide")
 st.title("🌱 Seed of Tomorrow / 明日之種")
 st.caption("HengJie｜AI × 真菌 × 公民科學｜AI + Mycology + Citizen Science for Climate-Ready Cities")
 
