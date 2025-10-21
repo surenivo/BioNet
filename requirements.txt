@@ -4,3 +4,6 @@ numpy
 pillow
 folium
 streamlit-folium
+geopy
+streamlit-geolocation
+requests
