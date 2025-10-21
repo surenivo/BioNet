@@ -209,17 +209,7 @@ with tab_report:
                     st.success(f"Found: {picked_label}")
                 else:
                     st.error("找不到地址，請換個關鍵字或加上門牌/區名")
-
-    elif loc_mode == "Use my location (GPS)":
-        st.info("點按下方按鈕 → 瀏覽器會詢問是否允許定位")
-        gps = geolocation()
-        if gps and gps.get("latitude") and gps.get("longitude"):
-            picked_latlon = [gps["latitude"], gps["longitude"]]
-            picked_label = f"GPS: {picked_latlon[0]:.5f}, {picked_latlon[1]:.5f}"
-            st.success(f"定位成功：{picked_label}")
-        else:
-            st.warning("尚未取得定位（請允許瀏覽器定位或再點一次）")
-
+        
     else:  # Pick on map
         st.caption("在地圖上點一下以放置樹木位置")
         tmp_map = folium.Map(location=DEFAULT_CENTER, zoom_start=13, tiles="cartodbpositron")
