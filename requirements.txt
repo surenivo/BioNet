@@ -1,8 +1,11 @@
 streamlit
+streamlit-folium
+streamlit-option-menu
+streamlit-extras
 pandas
 numpy
+scikit-learn
+opencv-python
 pillow
+plotly
 folium
-streamlit-folium
-geopy
-requests
