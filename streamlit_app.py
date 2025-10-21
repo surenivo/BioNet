@@ -6,7 +6,6 @@ import hashlib
 import folium
 from streamlit_folium import st_folium
 from geopy.geocoders import Nominatim
-from streamlit_geolocation import geolocation
 import requests
 
 st.set_page_config(page_title="Seed of Tomorrow", page_icon="🌱", layout="wide")
