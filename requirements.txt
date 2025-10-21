@@ -4,8 +4,9 @@ streamlit-option-menu
 streamlit-extras
 pandas
 numpy
-scikit-learn
-opencv-python
 pillow
 plotly
 folium
+overpy
+shapely
+requests
