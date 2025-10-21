@@ -132,20 +132,6 @@ with tab_map:
     with col2:
         show_osm = st.checkbox("Show base trees — OSM natural=tree", value=False)
 
-    # A) Demo CSV for Xitun (guaranteed points)
-    if show_xitun:
-        try:
-            demo = pd.read_csv("trees_xitun.csv")
-            for _, r in demo.iterrows():
-                folium.CircleMarker(
-                    [r["Latitude"], r["Longitude"]],
-                    radius=4, color="#006d2c", fill=True, fill_color="#006d2c",
-                    popup=f"{r.get('Species','Tree')} — {r.get('Notes','')}"
-                ).add_to(m)
-            st.caption(f"🟢 Loaded {len(demo)} base trees for Xitun District (CSV)")
-        except Exception as e:
-            st.warning(f"Could not load demo trees: {e}")
-
     # B) OSM fallback (works anywhere)
     if show_osm:
         try:
