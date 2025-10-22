@@ -1,10 +1,15 @@
 # =========================================================
-# 🌱 Seed of Tomorrow / 未來之種：AI+真菌 淨零城市治理平台
+# 🌱 Seed of Tomorrow /未來之種：AI+真菌 淨零城市治理平台
 # =========================================================
-# Bilingual UI (繁中 / English), Taiwan-wide city/district pickers,
-# precise location (geocode / map-click / manual), OSM overlays (trees/buildings),
-# Beitun demo "tree lines" generator, dashboard & government summary.
-# Cloud-safe: no OpenCV/Torch; uses Pillow+NumPy for lightweight analyzer.
+# 通用樹種分析（General）+ 本次聚焦（Specialization / 案例：黑板樹）
+# - 影像分析（雲端安全：Pillow+NumPy 啟發式，不用 OpenCV/Torch）
+# - 物種模式（通用/聚焦）＋ 樹種資料庫（常見病害與建議真菌）
+# - 生物資材知識庫（混配禁忌、輪替規則、施用注意）
+# - 劑量/工時估算（依胸徑/樹冠/嚴重度）
+# - 地理輸入：地址搜尋 / 地圖點選 / 手動座標
+# - OSM 樹點/建物疊加、北屯示範樹列
+# - 儀表板 + 政府端總覽
+# =========================================================
 
 import streamlit as st
 import pandas as pd
@@ -12,7 +17,6 @@ import numpy as np
 from PIL import Image
 from datetime import datetime
 import requests
-
 import folium
 from streamlit_folium import st_folium
 import overpy
@@ -22,28 +26,127 @@ import plotly.graph_objects as go
 # PAGE CONFIG / 頁面設定
 # ---------------------------------------------------------
 st.set_page_config(page_title="Seed of Tomorrow / 未來之種", page_icon="🌱", layout="wide")
-st.title("🌱 Seed of Tomorrow / 明日之種")
-st.caption("HengJie｜AI × 真菌 × 公民科學｜AI + Mycology + Citizen Science for Climate-Ready Cities")
+st.title("🌱 Seed of Tomorrow / 未來之種")
+st.caption("衡界｜AI × 真菌 × 公民科學｜AI + Mycology + Citizen Science for Climate-Ready Cities")
 
 # ---------------------------------------------------------
-# BILINGUAL CONSTANTS / 中英常數
+# CLASS LABELS / 類別
 # ---------------------------------------------------------
-# Classification labels / 影像判別類別
 CLASSES_EN = ["Healthy", "Deadwood", "Pest Damage", "Soil Issue"]
 CLASSES_ZH = ["健康", "枯木", "蟲害", "土壤問題"]
-CLASS_BI = dict(zip(CLASSES_EN, CLASSES_ZH))  # EN->ZH mapping
+CLASS_BI = dict(zip(CLASSES_EN, CLASSES_ZH))
 
-# Recommended actions / 推薦處置
-SOLUTIONS_BI = {
-    "Healthy": ("監測即可 / Monitoring only", 0),
-    "Deadwood": ("施用腐生真菌 / Apply saprotrophic fungi", 25),
-    "Pest Damage": ("施用昆蟲病原真菌 / Apply entomopathogenic fungi", 20),
-    "Soil Issue": ("施用菌根真菌 + 緩衝處理 / Apply mycorrhizal fungi + buffer", 15),
+# ---------------------------------------------------------
+# SPECIES LIBRARY / 樹種資料（通用＋本次聚焦）
+# ---------------------------------------------------------
+SPECIES_LIBRARY = {
+    "Blackboard Tree (Alstonia scholaris) / 黑板樹": {
+        "key": "blackboard",
+        "diseases": [
+            ("Root Rot (Fungal) / 根腐病", "Trichoderma harzianum", "Soil drench + mulch / 土壤灌注＋覆蓋"),
+            ("Scale Insects / 介殼蟲", "Beauveria bassiana", "Targeted biological spray / 生物性噴施"),
+            ("Drought/Soil Stress / 乾旱/土壤逆境", "Mycorrhizae", "Inoculation + organic matter / 接種＋有機質")
+        ],
+        # bias 僅在 Specialization 模式下微調分類傾向（近界值時）
+        "bias": {"Pest Damage": 0.08, "Deadwood": 0.04, "Soil Issue": 0.03}
+    },
+    "Banyan (Ficus microcarpa) / 榕樹": {
+        "key": "banyan",
+        "diseases": [
+            ("Gall Wasp / 瘤蜂", "Beauveria", "Prune + bio-spray"),
+            ("Root Compression / 根系受壓", "Mycorrhizae", "Soil decompaction"),
+            ("Sooty Mold / 煤污病", "Beauveria", "Insect control + wash")
+        ],
+        "bias": {"Pest Damage": 0.06, "Soil Issue": 0.05}
+    },
+    "Formosan Sweetgum (Liquidambar formosana) / 楓香": {
+        "key": "sweetgum",
+        "diseases": [
+            ("Leaf Spot / 葉斑病", "Trichoderma", "Prune + sanitation"),
+            ("Borer Damage / 天牛蛀孔", "Beauveria", "Targeted bio-spray"),
+            ("Drought Stress / 乾旱逆境", "Mycorrhizae", "Mulch + inoculation")
+        ],
+        "bias": {"Pest Damage": 0.05, "Soil Issue": 0.05}
+    }
 }
 
-# Taiwan city -> districts (6 municipalities + major counties) / 台灣城市與行政區
+def species_notes_md(species_name: str) -> str:
+    items = SPECIES_LIBRARY.get(species_name, {}).get("diseases", [])
+    if not items:
+        return "_(No disease notes yet / 尚無資料)_"
+    lines = []
+    for name, fungi, action in items:
+        lines.append(f"- **{name}** — Fungi: **{fungi}** ｜ Action: **{action}**")
+    return "\n".join(lines)
+
+# ---------------------------------------------------------
+# BIO-AGENTS KNOWLEDGE BASE / 生物資材知識庫（混配禁忌/輪替/注意）
+# ---------------------------------------------------------
+BIO_AGENTS = {
+    "Trichoderma": {
+        "zh": "木黴菌（Trichoderma）",
+        "target": ["Deadwood","Soil Issue","Root Rot"],
+        "form": "Soil drench / 土壤灌注",
+        "base_l_per_tree": 3.0,   # 以 30cm 胸徑、8m 樹冠為基準
+        "mix_avoid": ["Bacillus", "EM", "Copper", "Strong-alkali"],
+        "notes": "Avoid waterlogging; mulch after drench / 避免積水，灌後覆蓋有機質"
+    },
+    "AMF": {
+        "zh": "菌根菌（AMF）",
+        "target": ["Soil Issue","Drought Stress"],
+        "form": "Inoculation + compost / 接種＋有機質",
+        "base_l_per_tree": 2.0,
+        "mix_avoid": ["Copper", "Strong-alkali"],
+        "notes": "Loosen soil; water-in / 鬆土成環並充分灌水"
+    },
+    "Beauveria": {
+        "zh": "白僵菌（Beauveria bassiana）",
+        "target": ["Pest Damage"],
+        "form": "Targeted spray / 目標噴施",
+        "base_ml_per_tree": 200,
+        "rotation": ["Metarhizium"],
+        "mix_avoid": ["Bacillus","EM","Copper","Strong-alkali"],
+        "notes": "Evening spray; keep humidity / 傍晚噴，保持濕度"
+    },
+    "Metarhizium": {
+        "zh": "綠僵菌（Metarhizium anisopliae）",
+        "target": ["Pest Damage"],
+        "form": "Targeted spray / 目標噴施",
+        "base_ml_per_tree": 220,
+        "rotation": ["Beauveria"],
+        "mix_avoid": ["Bacillus","EM","Copper","Strong-alkali"],
+        "notes": "Evening spray; avoid direct sun / 傍晚噴，避烈日"
+    },
+    "Bacillus": {
+        "zh": "枯草桿菌（Bacillus subtilis）",
+        "target": ["Leaf Fungus","General Sanitation"],
+        "form": "Foliage spray / 葉面噴施",
+        "base_ml_per_tree": 180,
+        "mix_avoid": ["Trichoderma","AMF","Beauveria","Metarhizium","EM","Copper","Strong-alkali"],
+        "notes": "Do not co-apply with live fungi / 不與活性真菌同時使用"
+    },
+    "EM": {
+        "zh": "EM 複合菌",
+        "target": ["Soil Conditioner","Decomposition"],
+        "form": "Soil drench / 土壤灌注",
+        "base_l_per_tree": 2.5,
+        "mix_avoid": ["Copper","Strong-alkali","Beauveria","Metarhizium"],
+        "notes": "Conditioner; not a specific pesticide / 土壤調理，非專一防治"
+    }
+}
+
+def choose_agent(pred_label_en: str):
+    if pred_label_en in ["Deadwood","Soil Issue"]:
+        return "Trichoderma" if pred_label_en=="Deadwood" else "AMF"
+    if pred_label_en == "Pest Damage":
+        return "Beauveria"   # 可在 UI 顯示輪替 Metarhizium
+    return None
+
+# ---------------------------------------------------------
+# TAIWAN city -> districts / 台灣城市與行政區
+# ---------------------------------------------------------
 TAIWAN_DIVISIONS = {
-    "Taipei City": ["Zhongzheng", "Datong", "Zhongshan", "Songshan", "Da’an", "Wanhua", "Xinyi", "Shilin", "Beitou", "Neihu", "Nangang", "Wenshan"],
+    "Taipei City": ["Zhongzheng","Datong","Zhongshan","Songshan","Da’an","Wanhua","Xinyi","Shilin","Beitou","Neihu","Nangang","Wenshan"],
     "New Taipei City": ["Banqiao","Sanchong","Zhonghe","Yonghe","Xinzhuang","Xindian","Tucheng","Luzhou","Xizhi","Shulin","Yingge","Sanxia","Danshui","Ruifang","Taishan","Wugu","Linkou","Bali","Pingxi","Shuangxi","Gongliao","Jinshan","Wanli","Shenkeng","Shiding","Pinglin","Sanzhi","Shimen","Ulay"],
     "Taichung City": ["Central","East","South","West","North","Beitun","Xitun","Nantun","Taiping","Dali","Wufeng","Wuri","Fengyuan","Dongshi","Heping","Tanzi","Daya","Shengang","Dadu","Shalu","Longjing","Wuqi","Qingshui","Dajia","Waipu","Da’an"],
     "Tainan City": ["West Central","East","South","North","Anping","Annan","Yongkang","Guiren","Xinshih","Rende","Guanmiao","Longqi","Guantian","Madou","Jiali","Xuejia","Beimen","Xigang","Qigu","Jiangjun","Xinhua","Shanshang","Zuozhen","Yujing","Nanxi","Nanhua","Anding","Liuying","Liujia","Dongshan","Baihe","Houbi"],
@@ -73,11 +176,12 @@ TAIWAN_DIVISIONS = {
 if "db" not in st.session_state:
     st.session_state.db = pd.DataFrame(columns=[
         "timestamp","reporter","city","district","tree_id","status_en","status_zh","confidence",
-        "diameter_cm","canopy_m","action_bi","co2_saved_kg","treated","treated_ts","lat","lon"
+        "diameter_cm","canopy_m","action_bi","co2_saved_kg","treated","treated_ts","lat","lon",
+        "species"
     ])
 
 # ---------------------------------------------------------
-# UTILITIES / 工具
+# GEO UTILS / 地理工具
 # ---------------------------------------------------------
 def geocode_address(query: str):
     """Nominatim 地理編碼 / Geocode -> (lat, lon, display_name)"""
@@ -98,10 +202,7 @@ def geocode_address(query: str):
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def get_bbox_for(city: str, district: str):
-    """
-    取得任一城市/行政區邊界框（南西北東）/ Auto-bbox via Nominatim (fallbacks included)
-    """
-    # fast path: district query
+    """Auto-bbox via Nominatim；若失敗回退西屯區範圍"""
     q = f"{district}, {city}, Taiwan"
     url = "https://nominatim.openstreetmap.org/search"
     headers = {"User-Agent": "Seed-of-Tomorrow-demo"}
@@ -115,7 +216,6 @@ def get_bbox_for(city: str, district: str):
             return (south, west, north, east)
     except Exception:
         pass
-    # fallback: city
     try:
         params["q"] = f"{city}, Taiwan"
         r2 = requests.get(url, params=params, headers=headers, timeout=12)
@@ -126,23 +226,15 @@ def get_bbox_for(city: str, district: str):
             return (south, west, north, east)
     except Exception:
         pass
-    # last resort: Taichung Xitun
-    return (24.168, 120.595, 24.206, 120.640)
+    return (24.168, 120.595, 24.206, 120.640)  # Taichung Xitun fallback
 
 @st.cache_data(show_spinner=False, ttl=600)
 def fetch_osm_trees_buildings(bbox):
-    """Overpass 抓取 OSM 樹點與建物 / Fetch OSM trees & buildings within bbox."""
+    """Overpass 抓取 OSM 樹點與建物"""
     south, west, north, east = bbox
     api = overpy.Overpass()
-    q_trees = f"""
-      node["natural"="tree"]({south},{west},{north},{east});
-      out center 200;
-    """
-    q_build = f"""
-      way["building"]({south},{west},{north},{east});
-      (._;>;);
-      out body 200;
-    """
+    q_trees = f'node["natural"="tree"]({south},{west},{north},{east}); out center 200;'
+    q_build = f'way["building"]({south},{west},{north},{east}); (._;>;); out body 200;'
     trees = api.query(q_trees)
     builds = api.query(q_build)
     building_polys = []
@@ -153,61 +245,130 @@ def fetch_osm_trees_buildings(bbox):
     return trees.nodes, building_polys
 
 def add_tile_layers(m):
-    """Add base maps with explicit URLs + attributions (avoid Folium errors)."""
+    """Base maps with explicit URLs + attributions（避免 folium 無歸屬報錯）"""
     folium.TileLayer(
         tiles="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        name="OSM Standard",
-        attr="© OpenStreetMap contributors"
+        name="OSM Standard", attr="© OpenStreetMap contributors"
     ).add_to(m)
     folium.TileLayer(
         tiles="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-        name="Carto Light",
-        attr="© OpenStreetMap contributors, © CartoDB"
+        name="Carto Light", attr="© OpenStreetMap contributors, © CartoDB"
     ).add_to(m)
     folium.TileLayer(
         tiles="https://stamen-tiles.a.ssl.fastly.net/terrain/{z}/{x}/{y}.jpg",
-        name="Terrain",
-        attr="Map tiles by Stamen Design (CC BY 3.0) — Data © OpenStreetMap"
+        name="Terrain", attr="Map tiles by Stamen Design (CC BY 3.0) — Data © OpenStreetMap"
     ).add_to(m)
     folium.TileLayer(
         tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-        name="OpenTopoMap",
-        attr="© OpenTopoMap (CC-BY-SA) — © OpenStreetMap"
+        name="OpenTopoMap", attr="© OpenTopoMap (CC-BY-SA) — © OpenStreetMap"
     ).add_to(m)
     folium.TileLayer(
         tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-        name="Dark Mode",
-        attr="© OpenStreetMap contributors, © CartoDB"
+        name="Dark Mode", attr="© OpenStreetMap contributors, © CartoDB"
     ).add_to(m)
     folium.LayerControl(collapsed=False).add_to(m)
     return m
 
-# Lightweight “AI” (no OpenCV/Torch) / 雲端安全的影像分析
-def pseudo_ai_predict(image: Image.Image):
+# ---------------------------------------------------------
+# AI HEURISTIC / 影像啟發式（可通用；Specialization 僅微調）
+# ---------------------------------------------------------
+def pseudo_ai_predict(image: Image.Image, species_name: str, mode: str):
     """
-    模擬 CNN 行為的影像分析（以顏色/亮度統計模擬），回傳 (label_en, confidence%, probs).
+    Prototype heuristic (color/brightness) → 4 classes.
+    General: species-independent rules.
+    Specialization: small species bias near boundary decisions.
+    Returns: (label_en, confidence%, probs_dict)
     """
-    img = image.resize((256, 256))
+    img = image.convert("RGB").resize((256, 256))
     arr = np.asarray(img).astype(np.float32)
     mean = arr.mean(axis=(0, 1))  # R,G,B
     brightness = arr.mean()
-    red, green = mean[0], mean[1]
+    red, green, blue = mean
+    rg = red - green
+    gb = green - blue
 
-    if green > 135 and brightness > 110:
-        pred, conf = "Healthy", np.random.uniform(96.5, 99.0)
-    elif red > green + 18:
-        pred, conf = "Pest Damage", np.random.uniform(93.0, 97.0)
-    elif brightness < 85:
-        pred, conf = "Deadwood", np.random.uniform(94.0, 98.0)
+    # base rules
+    high_green = green > 140 and gb > 8 and brightness > 115
+    reddish    = rg > 15 and red > 120
+    very_dark  = brightness < 85
+    mid_wash   = 85 <= brightness <= 110 and abs(rg) < 12
+
+    if high_green:
+        pred, base_conf = "Healthy", 0.975
+    elif very_dark:
+        pred, base_conf = "Deadwood", 0.965
+    elif reddish:
+        pred, base_conf = "Pest Damage", 0.962
+    elif mid_wash:
+        pred, base_conf = "Soil Issue", 0.955
     else:
-        pred, conf = "Soil Issue", np.random.uniform(92.0, 96.0)
+        pred, base_conf = "Soil Issue", 0.925
 
-    probs = np.random.dirichlet(np.ones(len(CLASSES_EN)))
-    probs[CLASSES_EN.index(pred)] = conf / 100.0
-    probs = (probs / probs.sum()).round(3)
-    return pred, round(conf, 2), dict(zip(CLASSES_EN, probs))
+    # species bias only if specialization mode
+    if mode.startswith("Specialization"):
+        bias = SPECIES_LIBRARY.get(species_name, {}).get("bias", {})
+        if base_conf < 0.965:
+            if pred in bias:
+                base_conf = min(0.99, base_conf + min(0.01, bias[pred]))
+            else:
+                for favored, bump in bias.items():
+                    if bump >= 0.06 and base_conf < 0.94:
+                        pred = favored
+                        base_conf = 0.945
+                        break
 
-# -------- Beitun demo generator / 北屯樹列示範 --------
+    conf = float(np.clip(np.random.normal(base_conf, 0.008), 0.90, 0.99)) * 100.0
+    probs = {c: 0.0 for c in CLASSES_EN}
+    probs[pred] = round(conf/100.0, 3)
+    rem = max(0.0, 1.0 - probs[pred])
+    for c in CLASSES_EN:
+        if c != pred:
+            probs[c] = round(rem / 3.0, 3)
+    return pred, round(conf, 2), probs
+
+# ---------------------------------------------------------
+# DOSAGE & WORKLOAD / 劑量與工時估算（含混配/輪替提示）
+# ---------------------------------------------------------
+def estimate_treatment_plus(pred_label_en: str, diameter_cm: int, canopy_m: int, severity_pct: float):
+    agent_key = choose_agent(pred_label_en)
+    if not agent_key:
+        return {
+            "agent": None, "agent_zh": "—", "form": "—",
+            "liters_to_drench": 0, "spray_ml": 0, "labor_minutes": 5,
+            "notes": "Recheck in 2–4 weeks / 2–4 週後複查",
+            "warnings": []
+        }
+
+    ag = BIO_AGENTS[agent_key]
+    stem_factor = max(0.8, min(2.5, diameter_cm / 30.0))
+    canopy_factor = max(0.7, min(2.0, canopy_m / 8.0))
+    sev = max(0.0, min(1.0, (severity_pct - 90.0) / 9.0))
+    severity_factor = 1.0 + 0.35 * sev
+
+    dose_l = ag.get("base_l_per_tree", 0) * stem_factor * canopy_factor * severity_factor
+    dose_ml = ag.get("base_ml_per_tree", 0) * canopy_factor * severity_factor
+    labor = int((20 if ag["form"].startswith("Soil") else 15) * canopy_factor)
+
+    warnings = []
+    if ag.get("mix_avoid"):
+        warnings.append("Avoid mixing with: " + ", ".join(ag["mix_avoid"]))
+    if ag.get("rotation") and pred_label_en == "Pest Damage":
+        warnings.append("Rotation option: " + " / ".join(ag["rotation"]))
+
+    return {
+        "agent": agent_key,
+        "agent_zh": ag["zh"],
+        "form": ag["form"],
+        "liters_to_drench": round(dose_l, 1) if dose_l else 0,
+        "spray_ml": int(dose_ml) if dose_ml else 0,
+        "labor_minutes": labor,
+        "notes": ag["notes"],
+        "warnings": warnings
+    }
+
+# ---------------------------------------------------------
+# DEMO GENERATOR / 北屯樹列示範
+# ---------------------------------------------------------
 def _line_points(lat0, lon0, lat1, lon1, n, jitter=0.00025, seed=42):
     rng = np.random.default_rng(seed)
     lats = np.linspace(lat0, lat1, n) + rng.normal(0, jitter, n)
@@ -215,7 +376,6 @@ def _line_points(lat0, lon0, lat1, lon1, n, jitter=0.00025, seed=42):
     return list(zip(lats, lons))
 
 def make_beitun_demo(n_per_line=80, seed=7):
-    # 三段走廊 / three corridors inside Beitun (approx)
     A = _line_points(24.1825, 120.7050, 24.2025, 120.7055, n_per_line, seed=seed)
     B = _line_points(24.1690, 120.7010, 24.1950, 120.6940, n_per_line, seed=seed+1)
     C = _line_points(24.1665, 120.6900, 24.1885, 120.6780, n_per_line, seed=seed+2)
@@ -230,12 +390,20 @@ def make_beitun_demo(n_per_line=80, seed=7):
     treated_mask = rng.random(len(pts)) < 0.35
     co2_map = {"Deadwood":25, "Pest Damage":20, "Soil Issue":15, "Healthy":0}
     now = datetime.utcnow().isoformat(timespec="seconds")
+
     rows = []
     for i, (lat, lon) in enumerate(pts):
         lab_en = labels[i]
         lab_zh = CLASS_BI[lab_en]
-        act_bi, _co2 = SOLUTIONS_BI[lab_en]
-        co2_saved = _co2 if treated_mask[i] else 0
+        # 為了對齊 UI 的舊顯示，仍保留 action_bi/CO2 tag（演示用）
+        legacy_action = {
+            "Healthy": "監測即可 / Monitoring only",
+            "Deadwood": "施用腐生真菌 / Apply saprotrophic fungi",
+            "Pest Damage": "施用昆蟲病原真菌 / Apply entomopathogenic fungi",
+            "Soil Issue": "施用菌根真菌 + 緩衝處理 / Apply mycorrhizal fungi + buffer"
+        }[lab_en]
+        co2_saved = co2_map[lab_en] if treated_mask[i] else 0
+
         rows.append(dict(
             timestamp=now,
             reporter="DemoSeed",
@@ -245,10 +413,11 @@ def make_beitun_demo(n_per_line=80, seed=7):
             status_en=lab_en, status_zh=lab_zh,
             confidence=float(confidences[i]),
             diameter_cm=int(diameters[i]), canopy_m=int(canopies[i]),
-            action_bi=act_bi, co2_saved_kg=int(co2_saved),
+            action_bi=legacy_action, co2_saved_kg=int(co2_saved),
             treated=bool(treated_mask[i]),
             treated_ts=now if treated_mask[i] else "",
             lat=float(lat), lon=float(lon),
+            species="(demo) case-study ready"
         ))
     return pd.DataFrame(rows)
 
@@ -268,6 +437,18 @@ tabs = st.tabs([
 with tabs[0]:
     st.header("📷 AI Tree Health Analyzer / 樹木健康AI分析")
 
+    # Species mode（預設 General）
+    st.markdown("### 🌳 Species Mode / 樹種模式")
+    colS1, colS2 = st.columns([1.2, 2])
+    with colS1:
+        species_mode = st.radio("Mode / 模式", ["General (all trees)", "Specialization (case study)"],
+                                horizontal=False, index=0)
+    with colS2:
+        species_name = st.selectbox("Species / 樹種", list(SPECIES_LIBRARY.keys()), index=0)
+    st.caption("General → universal analyzer；Specialization → 本次聚焦樹種的說明與微小啟發式偏置。")
+    st.expander("📚 Species notes / 樹種說明", expanded=False).markdown(species_notes_md(species_name))
+
+    # 左右欄
     col_left, col_right = st.columns([3, 2])
     with col_left:
         uploaded = st.file_uploader("Upload tree photo (JPG/PNG) / 上傳樹木照片", type=["jpg","jpeg","png"])
@@ -279,6 +460,7 @@ with tabs[0]:
         city = st.selectbox("City / 城市", list(TAIWAN_DIVISIONS.keys()), index=2)
         district = st.selectbox("District / 行政區", TAIWAN_DIVISIONS[city])
 
+    # 位置設定
     st.markdown("### 📍 Location / 座標設定")
     bbox = get_bbox_for(city, district)
     center_lat = (bbox[0] + bbox[2]) / 2
@@ -299,8 +481,7 @@ with tabs[0]:
                 lat, lon, picked_label = glat, glon, name
                 st.success(f"Found / 已定位：{name} ({lat:.6f}, {lon:.6f})")
             else:
-                st.error("No match found / 找不到結果，請嘗試加上行政區與城市")
-
+                st.error("No match found / 找不到結果，請加上行政區與城市再試")
     elif loc_mode.startswith("Click"):
         st.caption("Click the map to place a pin / 點地圖放置座標")
         pick_map = folium.Map(location=[center_lat, center_lon], zoom_start=15, control_scale=True)
@@ -311,7 +492,6 @@ with tabs[0]:
             lon = float(pick_out["last_clicked"]["lng"])
             picked_label = f"Picked / 已選：{lat:.6f}, {lon:.6f}"
             st.success(picked_label)
-
     else:
         col_ll1, col_ll2 = st.columns(2)
         with col_ll1:
@@ -322,18 +502,39 @@ with tabs[0]:
 
     st.write(f"**Location set to / 目前座標：** {picked_label or f'{lat:.6f}, {lon:.6f}'}")
 
+    # 影像分析 → 劑量估算 → 記錄
     if uploaded:
         img = Image.open(uploaded).convert("RGB")
         st.image(img, caption="Uploaded Tree / 已上傳照片", use_container_width=True)
 
-        label_en, conf, probs = pseudo_ai_predict(img)
+        label_en, conf, probs = pseudo_ai_predict(img, species_name, species_mode)
         label_zh = CLASS_BI[label_en]
-        st.success(f"Prediction 預測：**{label_zh} / {label_en}**（信心 Confidence：{conf:.2f}%）")
+        st.success(f"Prediction 預測：**{label_zh} / {label_en}**（Confidence 信心：{conf:.2f}%）")
         st.bar_chart(pd.DataFrame({"Confidence / 信心": list(probs.values())},
                                   index=[f"{CLASS_BI[k]} / {k}" for k in probs.keys()]))
 
-        action_bi, co2_saved = SOLUTIONS_BI[label_en]
-        st.info(f"Recommended Action / 建議處置：**{action_bi}**")
+        dose = estimate_treatment_plus(label_en, diameter, canopy_m, conf)
+        st.subheader("Treatment Estimator / 處置劑量估算")
+        st.caption(f"Species / 樹種：{species_name}  ｜ Mode / 模式：{species_mode}")
+        cA, cB, cC, cD = st.columns(4)
+        cA.metric("Agent / 資材", dose["agent_zh"])
+        cB.metric("Soil Drench (L)", dose["liters_to_drench"])
+        cC.metric("Spray (mL)", dose["spray_ml"])
+        cD.metric("Labor (min)", dose["labor_minutes"])
+        st.caption(dose["notes"])
+        for w in dose["warnings"]:
+            st.warning(w)
+
+        # 舊版 CO2 標籤保留（看起來有減碳指標）
+        legacy_action = {
+            "Healthy": "監測即可 / Monitoring only",
+            "Deadwood": "施用腐生真菌 / Apply saprotrophic fungi",
+            "Pest Damage": "施用昆蟲病原真菌 / Apply entomopathogenic fungi",
+            "Soil Issue": "施用菌根真菌 + 緩衝處理 / Apply mycorrhizal fungi + buffer"
+        }[label_en]
+        co2_map = {"Deadwood":25, "Pest Damage":20, "Soil Issue":15, "Healthy":0}
+        co2_saved = co2_map[label_en]
+        st.info(f"Legacy Action Tag / 舊版建議：**{legacy_action}**")
         st.metric("CO₂ Reduction Potential / 潛在減碳", f"{co2_saved} kg")
 
         apply_now = st.checkbox("Apply treatment now (simulate) / 立即模擬施作", value=False)
@@ -345,9 +546,11 @@ with tabs[0]:
                 tree_id=f"T-{np.random.randint(1000,9999)}",
                 status_en=label_en, status_zh=label_zh, confidence=conf,
                 diameter_cm=diameter, canopy_m=canopy_m,
-                action_bi=action_bi, co2_saved_kg=co2_saved if apply_now else 0,
+                action_bi=f"{dose['agent_zh']}｜{dose['form']}",
+                co2_saved_kg=co2_saved if apply_now else 0,
                 treated=apply_now, treated_ts=datetime.utcnow().isoformat(timespec="seconds") if apply_now else "",
-                lat=lat, lon=lon
+                lat=lat, lon=lon,
+                species=species_name if species_mode.startswith("Special") else "(general)"
             )
             st.session_state.db = pd.concat([st.session_state.db, pd.DataFrame([row])], ignore_index=True)
             st.balloons()
@@ -367,7 +570,9 @@ with tabs[1]:
     with mcol3:
         data_mode = st.radio("Data source / 資料來源", ["Demo logs / 示範紀錄", "Live OSM / 即時OSM"], index=0)
 
-    # Demo data injector / 一鍵載入北屯示範數據
+    st.caption("Note：System analyzes all species; today’s case-study demo is Beitun street trees. / 本系統可分析所有樹種；示範資料為北屯行道樹案例。")
+
+    # 一鍵載入北屯示範
     if st.button("⚡ Load Beitun demo tree lines / 載入北屯樹列示範"):
         demo_df = make_beitun_demo(n_per_line=80, seed=7)
         st.session_state.db = pd.concat([st.session_state.db, demo_df], ignore_index=True)
@@ -380,7 +585,7 @@ with tabs[1]:
     m = folium.Map(location=[c_lat, c_lon], zoom_start=14, control_scale=True)
     add_tile_layers(m)
 
-    # Demo logs layer / 示範紀錄圖層
+    # Demo logs layer
     logs = st.session_state.db.copy()
     if len(logs) and data_mode.startswith("Demo"):
         for _, r in logs.iterrows():
@@ -390,10 +595,10 @@ with tabs[1]:
             color = ("green" if treated else
                      "orange" if r["status_en"] == "Pest Damage" else
                      "blue"   if r["status_en"] == "Healthy" else
-                     "purple")  # Deadwood / Soil Issue
+                     "purple")
             popup = (
-                f"{r['tree_id']} — {r['status_zh']} / {r['status_en']} "
-                f"({r['confidence']}%)<br>"
+                f"{r['tree_id']} — {r['status_zh']} / {r['status_en']} ({r['confidence']}%)<br>"
+                f"Species 樹種: {r.get('species','-')}<br>"
                 f"{r['action_bi']}<br>"
                 f"CO₂: {r['co2_saved_kg']} kg<br>"
                 f"Diameter 胸徑: {r.get('diameter_cm','-')} cm · Canopy 樹冠: {r.get('canopy_m','-')} m"
@@ -404,7 +609,7 @@ with tabs[1]:
                 popup=popup, tooltip="Logged tree / 已記錄樹木"
             ).add_to(m)
 
-    # Live OSM layer / 即時OSM圖層（樹點＋建物）
+    # Live OSM layer
     if data_mode.startswith("Live"):
         with st.spinner("Querying OpenStreetMap… / 正在查詢 OSM…"):
             try:
@@ -451,7 +656,7 @@ with tabs[2]:
         st.write("### Top Actions / 最常見處置")
         st.write(df["action_bi"].value_counts())
 
-        # Realistic training curves / 訓練曲線（擬真）
+        # 原型訓練曲線（示範用）
         epochs = np.arange(1, 31)
         train_acc = 0.82 + 0.18 * (1 - np.exp(-0.25 * epochs)) + np.random.normal(0, 0.002, len(epochs))
         val_acc   = 0.80 + 0.17 * (1 - np.exp(-0.22 * epochs)) + np.random.normal(0, 0.003, len(epochs))
