@@ -436,17 +436,31 @@ tabs = st.tabs([
 # =========================================================
 with tabs[0]:
     st.header("📷 AI Tree Health Analyzer / 樹木健康AI分析")
+# ---------------------------------------------------------
+# SPECIES MODE / 樹種模式
+# ---------------------------------------------------------
+st.markdown("### 🌳 Species Mode / 樹種模式")
 
-    # Species mode（預設 General）
-    st.markdown("### 🌳 Species Mode / 樹種模式")
-    colS1, colS2 = st.columns([1.2, 2])
-    with colS1:
-        species_mode = st.radio("Mode / 模式", ["General (all trees)", "Specialization (case study)"],
-                                horizontal=False, index=0)
-    with colS2:
-        species_name = st.selectbox("Species / 樹種", list(SPECIES_LIBRARY.keys()), index=0)
-    st.caption("General → universal analyzer；Specialization → 本次聚焦樹種的說明與微小啟發式偏置。")
-    st.expander("📚 Species notes / 樹種說明", expanded=False).markdown(species_notes_md(species_name))
+species_mode = st.radio(
+    "Select mode / 選擇模式",
+    ["General (all trees)", "Specialization (case study)"],
+    index=0,
+    horizontal=True
+)
+if species_mode.startswith("Specialization"):
+    species_name = st.selectbox(
+        "Species / 樹種",
+        list(SPECIES_LIBRARY.keys()),
+        index=0
+    )
+    st.expander("📚 Species notes / 樹種說明", expanded=False).markdown(
+        species_notes_md(species_name)
+    )
+    st.caption("Specialization mode activates species-specific heuristics and dosage logic.")
+else:
+    # General mode → no species selector at all
+    species_name = "(general)"
+    st.caption("General mode analyzes all trees with universal heuristics (no species required).")
 
     # 左右欄
     col_left, col_right = st.columns([3, 2])
