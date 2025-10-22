@@ -585,7 +585,12 @@ with tabs[1]:
         data_mode = st.radio("Data source / 資料來源", ["Demo logs / 示範紀錄", "Live OSM / 即時OSM"], index=0)
 
     st.caption("Note：System analyzes all species; today’s case-study demo is Beitun street trees. / 本系統可分析所有樹種；示範資料為北屯行道樹案例。")
-
+    
+if species_mode.startswith("Specialization"):
+    st.caption(f"🔬 Specialization mode active: focusing on {species_name}")
+else:
+    st.caption("🌍 General mode: analyzing all trees across Taiwan")
+    
     # 一鍵載入北屯示範
     if st.button("⚡ Load Beitun demo tree lines / 載入北屯樹列示範"):
         demo_df = make_beitun_demo(n_per_line=80, seed=7)
