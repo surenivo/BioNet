@@ -439,32 +439,16 @@ with tabs[0]:
 # ---------------------------------------------------------
 # SPECIES MODE / 樹種模式
 # ---------------------------------------------------------
-st.markdown("### 🌳 Species Mode / 樹種模式")
-colS1, colS2 = st.columns([1.2, 2])
-with colS1:
-    species_mode = st.radio(
-        "Mode / 模式",
-        ["General (all trees)", "Specialization (case study)"],
-        index=0
-    )
-
-# In General mode, let user optionally type a species name (for logging only)
-if species_mode.startswith("General"):
-    species_name = st.text_input(
-        "Species (optional) / 樹種（可留白）",
-        value="",
-        placeholder="Unknown / 未標示"
-    )
-    st.caption("General mode uses species-agnostic analysis. 樹種僅作為紀錄用。")
-else:
-    species_name = st.selectbox(
-        "Species / 樹種",
-        list(SPECIES_LIBRARY.keys()),
-        index=0
-    )
-    st.expander("📚 Species notes / 樹種說明", expanded=False).markdown(
-        species_notes_md(species_name)
-    )
+    # Species mode（預設 General）
+    st.markdown("### 🌳 Species Mode / 樹種模式")
+    colS1, colS2 = st.columns([1.2, 2])
+    with colS1:
+        species_mode = st.radio("Mode / 模式", ["General (all trees)", "Specialization (case study)"],
+                                horizontal=False, index=0)
+    with colS2:
+        species_name = st.selectbox("Species / 樹種", list(SPECIES_LIBRARY.keys()), index=0)
+    st.caption("General → universal analyzer；Specialization → 本次聚焦樹種的說明與微小啟發式偏置。")
+    st.expander("📚 Species notes / 樹種說明", expanded=False).markdown(species_notes_md(species_name))
 
     # 左右欄
     col_left, col_right = st.columns([3, 2])
@@ -589,11 +573,6 @@ with tabs[1]:
         data_mode = st.radio("Data source / 資料來源", ["Demo logs / 示範紀錄", "Live OSM / 即時OSM"], index=0)
 
     st.caption("Note：System analyzes all species; today’s case-study demo is Beitun street trees. / 本系統可分析所有樹種；示範資料為北屯行道樹案例。")
-    
-if species_mode.startswith("Specialization"):
-    st.caption(f"🔬 Specialization mode active: focusing on {species_name}")
-else:
-    st.caption("🌍 General mode: analyzing all trees across Taiwan")
     
     # 一鍵載入北屯示範
     if st.button("⚡ Load Beitun demo tree lines / 載入北屯樹列示範"):
