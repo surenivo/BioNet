@@ -440,14 +440,23 @@ with tabs[0]:
 # SPECIES MODE / 樹種模式
 # ---------------------------------------------------------
 st.markdown("### 🌳 Species Mode / 樹種模式")
+colS1, colS2 = st.columns([1.2, 2])
+with colS1:
+    species_mode = st.radio(
+        "Mode / 模式",
+        ["General (all trees)", "Specialization (case study)"],
+        index=0
+    )
 
-species_mode = st.radio(
-    "Select mode / 選擇模式",
-    ["General (all trees)", "Specialization (case study)"],
-    index=0,
-    horizontal=True
-)
-if species_mode.startswith("Specialization"):
+# In General mode, let user optionally type a species name (for logging only)
+if species_mode.startswith("General"):
+    species_name = st.text_input(
+        "Species (optional) / 樹種（可留白）",
+        value="",
+        placeholder="Unknown / 未標示"
+    )
+    st.caption("General mode uses species-agnostic analysis. 樹種僅作為紀錄用。")
+else:
     species_name = st.selectbox(
         "Species / 樹種",
         list(SPECIES_LIBRARY.keys()),
@@ -456,11 +465,6 @@ if species_mode.startswith("Specialization"):
     st.expander("📚 Species notes / 樹種說明", expanded=False).markdown(
         species_notes_md(species_name)
     )
-    st.caption("Specialization mode activates species-specific heuristics and dosage logic.")
-else:
-    # General mode → no species selector at all
-    species_name = "(general)"
-    st.caption("General mode analyzes all trees with universal heuristics (no species required).")
 
     # 左右欄
     col_left, col_right = st.columns([3, 2])
